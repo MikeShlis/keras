@@ -20,6 +20,7 @@ from ..utils.generic_utils import unpack_singleton
 
 
 def fit_loop(model, fit_function, fit_inputs,
+             hyperparams=[],
              out_labels=None,
              batch_size=None,
              epochs=100,
@@ -41,6 +42,7 @@ def fit_loop(model, fit_function, fit_inputs,
         model: Keras model instance.
         fit_function: Keras function returning a list of tensors
         fit_inputs: List of tensors to be fed to `fit_function`
+        hyperparams: list of hyperparams to pass to `fit function`
         out_labels: List of strings, display names of
             the outputs of `fit_function`
         batch_size: Integer batch size or None if unknown.
@@ -189,7 +191,7 @@ def fit_loop(model, fit_function, fit_inputs,
                     if isinstance(fit_inputs[-1], float):
                         # Do not slice the training phase flag.
                         ins_batch = slice_arrays(
-                            fit_inputs[:-1], batch_ids) + [fit_inputs[-1]]
+                            fit_inputs[:-1], batch_ids) + fit_inputs[-1]
                     else:
                         ins_batch = slice_arrays(fit_inputs, batch_ids)
                 except TypeError:
@@ -201,7 +203,7 @@ def fit_loop(model, fit_function, fit_inputs,
                 for i in indices_for_conversion_to_dense:
                     ins_batch[i] = ins_batch[i].toarray()
 
-                outs = fit_function(ins_batch)
+                outs = fit_function(ins_batch+hyperparams)
                 outs = to_list(outs)
                 for l, o in zip(out_labels, outs):
                     batch_logs[l] = o

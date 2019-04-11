@@ -96,6 +96,7 @@ class Model(Network):
             ValueError: In case of invalid arguments for
                 `optimizer`, `loss`, `metrics` or `sample_weight_mode`.
         """
+        print('compiling...')
         self.optimizer = optimizers.get(optimizer)
         self.loss = loss or []
         self.metrics = metrics or []
@@ -501,7 +502,8 @@ class Model(Network):
         if self.train_function is None:
             inputs = (self._feed_inputs +
                       self._feed_targets +
-                      self._feed_sample_weights)
+                      self._feed_sample_weights +
+                      self._feed_hyperparams)
             if self._uses_dynamic_learning_phase():
                 inputs += [K.learning_phase()]
 
@@ -527,7 +529,8 @@ class Model(Network):
         if self.test_function is None:
             inputs = (self._feed_inputs +
                       self._feed_targets +
-                      self._feed_sample_weights)
+                      self._feed_sample_weights +
+                      self._feed_hyperparams)
             if self._uses_dynamic_learning_phase():
                 inputs += [K.learning_phase()]
             # Return loss and metrics, no gradient updates.
@@ -648,11 +651,13 @@ class Model(Network):
 
     def _standardize_user_data(self, x,
                                y=None,
+                               hyperparams=None,
                                sample_weight=None,
                                class_weight=None,
                                check_array_lengths=True,
                                batch_size=None):
         all_inputs = []
+        if hyperparams is None: hyperparams = []
         if not self.built:
             # We need to use `x` to set the model inputs.
             # We type-check that `x` and `y` are either single arrays
@@ -742,11 +747,15 @@ class Model(Network):
             # Do not do shape validation.
             feed_input_names = self._feed_input_names
             feed_input_shapes = None
+            feed_hyperparam_names = self._feed_hyperparam_names
+            feed_hyperparam_shapes = None
         else:
             # Case: symbolic-mode graph network.
             # In this case, we run extensive shape validation checks.
             feed_input_names = self._feed_input_names
             feed_input_shapes = self._feed_input_shapes
+            feed_hyperparam_names = self._feed_hyperparam_names
+            feed_hyperparam_shapes = self._feed_hyperparam_shapes
 
         # Standardize the inputs.
         x = standardize_input_data(
@@ -755,6 +764,15 @@ class Model(Network):
             feed_input_shapes,
             check_batch_axis=False,  # Don't enforce the batch size.
             exception_prefix='input')
+        
+        if len(hyperparams) > 0:
+            hyperparams = standardize_input_data(
+                hyperparams,
+                feed_hyperparam_names,
+                feed_hyperparam_shapes,
+                check_batch_axis=False,  # Don't enforce the batch size.
+                exception_prefix='hyperparam')
+
 
         if y is not None:
             if not self._is_graph_network:
@@ -827,7 +845,7 @@ class Model(Network):
                                  'a number of samples that can be '
                                  'divided by the batch size. Found: ' +
                                  str(x[0].shape[0]) + ' samples')
-        return x, y, sample_weights
+        return x, y, hyperparams, sample_weights
 
     def _get_callback_model(self):
         """Returns the Callback Model for this Model."""
@@ -890,6 +908,7 @@ class Model(Network):
     def fit(self,
             x=None,
             y=None,
+            hyperparams=None,
             batch_size=None,
             epochs=1,
             verbose=1,
@@ -1082,8 +1101,8 @@ class Model(Network):
                 initial_epoch=initial_epoch)
 
         # Case 2: Symbolic tensors or Numpy array-like.
-        x, y, sample_weights = self._standardize_user_data(
-            x, y,
+        x, y, hyperparams, sample_weights = self._standardize_user_data(
+            x, y, hyperparams,
             sample_weight=sample_weight,
             class_weight=class_weight,
             batch_size=batch_size)
@@ -1104,8 +1123,8 @@ class Model(Network):
                                  'items, however it contains %d items' %
                                  len(validation_data))
 
-            val_x, val_y, val_sample_weights = self._standardize_user_data(
-                val_x, val_y,
+            val_x, val_y, _, val_sample_weights = self._standardize_user_data(
+                val_x, val_y, None,
                 sample_weight=val_sample_weight,
                 batch_size=batch_size)
             if self._uses_dynamic_learning_phase():
@@ -1163,6 +1182,7 @@ class Model(Network):
 
         # Delegate logic to `fit_loop`.
         return training_arrays.fit_loop(self, fit_function, fit_inputs,
+                                        hyperparams=hyperparams,
                                         out_labels=out_labels,
                                         batch_size=batch_size,
                                         epochs=epochs,

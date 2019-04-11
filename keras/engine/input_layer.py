@@ -33,7 +33,9 @@ class InputLayer(Layer):
     @interfaces.legacy_input_support
     def __init__(self, input_shape=None, batch_size=None,
                  batch_input_shape=None,
-                 dtype=None, input_tensor=None, sparse=False, name=None):
+                 dtype=None, input_tensor=None, 
+                 is_hyperparam=False,
+                 sparse=False, name=None):
         if not name:
             prefix = 'input'
             name = prefix + '_' + str(K.get_uid(prefix))
@@ -43,6 +45,7 @@ class InputLayer(Layer):
         self.built = True
         self.sparse = sparse
         self.supports_masking = True
+        self.is_hyperparam = is_hyperparam
 
         if input_shape and batch_input_shape:
             raise ValueError('Only provide the input_shape OR '
@@ -113,7 +116,7 @@ class InputLayer(Layer):
 
 def Input(shape=None, batch_shape=None,
           name=None, dtype=None, sparse=False,
-          tensor=None):
+          is_hyperparam=False, tensor=None):
     """`Input()` is used to instantiate a Keras tensor.
 
     A Keras tensor is a tensor object from the underlying backend
@@ -148,6 +151,8 @@ def Input(shape=None, batch_shape=None,
             (`float32`, `float64`, `int32`...)
         sparse: A boolean specifying whether the placeholder
             to be created is sparse.
+        is_hyperparam: A boolean specifying if it is a hyperparameter to the 
+            model (doesnt include batch dim)
         tensor: Optional existing tensor to wrap into the `Input` layer.
             If set, the layer will not create a placeholder tensor.
 
@@ -168,13 +173,17 @@ def Input(shape=None, batch_shape=None,
                                    ' or a `batch_shape` argument. Note that '
                                    '`shape` does not include the batch '
                                    'dimension.')
-    if shape is not None and not batch_shape:
+    if shape is not None and not batch_shape and not is_hyperparam:
         batch_shape = (None,) + tuple(shape)
+    elif is_hyperparam:
+        batch_shape = tuple(shape)
+        
     if not dtype:
         dtype = K.floatx()
     input_layer = InputLayer(batch_input_shape=batch_shape,
                              name=name, dtype=dtype,
                              sparse=sparse,
+                             is_hyperparam=is_hyperparam,
                              input_tensor=tensor)
     # Return tensor including _keras_shape and _keras_history.
     # Note that in this case train_output and test_output are the same pointer.

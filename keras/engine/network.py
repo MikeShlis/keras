@@ -85,6 +85,7 @@ class Network(Layer):
 
     @interfaces.legacy_model_constructor_support
     def __init__(self, *args, **kwargs):
+        print('making network')
         # Signature detection
         if (len(args) == 2 or
             len(args) == 1 and 'outputs' in kwargs or
@@ -136,11 +137,13 @@ class Network(Layer):
         self._outbound_nodes = []
         self._inbound_nodes = []
 
-    def _init_graph_network(self, inputs, outputs, name=None):
+    def _init_graph_network(self, inputs, outputs, hyperparams=[], name=None):
         self._uses_inputs_arg = True
         # Normalize and set self.inputs, self.outputs.
         self.inputs = to_list(inputs, allow_tuple=True)
         self.outputs = to_list(outputs, allow_tuple=True)
+        self.hyperparams = to_list(hyperparams, allow_tuple=True)
+
 
         # User-provided argument validation.
         # Check for redundancy in inputs.
@@ -149,7 +152,7 @@ class Network(Layer):
                              'is redundant. '
                              'All inputs should only appear once.'
                              ' Found: ' + str(self.inputs))
-        for x in self.inputs:
+        for x in self.inputs + self.hyperparams:
             # Check that x has appropriate `_keras_history` metadata.
             if not hasattr(x, '_keras_history'):
                 cls_name = self.__class__.__name__
@@ -197,8 +200,10 @@ class Network(Layer):
 
         self._input_layers = []
         self._output_layers = []
+        self._hyperparam_layers = []
         self._input_coordinates = []
         self._output_coordinates = []
+        self._hyperparam_coordinates = []
 
         # This is for performance optimization when calling the Network on new
         # inputs. Every time the Network is called on a set on input tensors,
@@ -225,10 +230,20 @@ class Network(Layer):
             assert tensor_index == 0
             self._input_layers.append(layer)
             self._input_coordinates.append((layer, node_index, tensor_index))
+            
+        # Build self._hyperparam_layers:
+        for x in self.hyperparams:
+            layer, node_index, tensor_index = x._keras_history
+            # It's supposed to be an input layer, so only one node
+            # and one tensor output.
+            assert node_index == 0
+            assert tensor_index == 0
+            self._hyperparam_layers.append(layer)
+            self._hyperparam_coordinates.append((layer, node_index, tensor_index))
 
         # Keep track of the network's nodes and layers.
         nodes, nodes_by_depth, layers, layers_by_depth = _map_graph_network(
-            self.inputs, self.outputs)
+            self.inputs+self.hyperparams, self.outputs)
         self._network_nodes = nodes
         self._nodes_by_depth = nodes_by_depth
         self._layers = layers
@@ -239,12 +254,12 @@ class Network(Layer):
              inbound_layers=[],
              node_indices=[],
              tensor_indices=[],
-             input_tensors=self.inputs,
+             input_tensors=self.inputs+self.hyperparams,
              output_tensors=self.outputs,
              # No network-level masking for now.
-             input_masks=[None for _ in self.inputs],
+             input_masks=[None for _ in self.inputs+self.hyperparams],
              output_masks=[None for _ in self.outputs],
-             input_shapes=[x._keras_shape for x in self.inputs],
+             input_shapes=[x._keras_shape for x in self.inputs+self.hyperparams],
              output_shapes=[x._keras_shape for x in self.outputs])
 
         # Fill in the output mask cache.
@@ -271,21 +286,30 @@ class Network(Layer):
         self._feed_input_names = []
         self._feed_inputs = []
         self._feed_input_shapes = []
-        for i, layer in enumerate(self._input_layers):
+        self._feed_hyperparams = []
+        self._feed_hyperparam_names = []
+        self._feed_hyperparam_shapes = []
+        for layer, inp in zip(self._input_layers + self._hyperparam_layers, 
+                            self.inputs + self.hyperparams):
             # Check that layer is an InputLayer.
             if not isinstance(layer, InputLayer):
                 raise TypeError(
                     'Input layers to a `Model` must be `InputLayer` objects. '
                     'Received inputs: {}. '
                     'Input {} (0-based) originates '
-                    'from layer type `{}`.'.format(inputs,
+                    'from layer type `{}`.'.format(inputs+hyperparams,
                                                    i,
                                                    layer.__class__.__name__))
             self.input_names.append(layer.name)
-            if layer.is_placeholder:
+            if layer.is_hyperparam:
+                self._feed_hyperparams.append(layer.input)
+                self._feed_hyperparam_names.append(layer.name)
+                self._feed_hyperparam_shapes.append(inp._keras_shape)
+                
+            elif layer.is_placeholder:
                 self._feed_inputs.append(layer.input)
                 self._feed_input_names.append(layer.name)
-                self._feed_input_shapes.append(self.inputs[i]._keras_shape)
+                self._feed_input_shapes.append(inp._keras_shape)
 
         for layer in self._output_layers:
             self.output_names.append(layer.name)

@@ -27,8 +27,8 @@ def standardize_single_array(x):
                 'tensors to have a static batch size. '
                 'Got tensor with shape: %s' % str(shape))
         return x
-    elif x.ndim == 1:
-        x = np.expand_dims(x, 1)
+    #elif x.ndim == 1:
+    #    x = np.expand_dims(x, 1)
     return x
 
 
